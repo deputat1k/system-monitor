@@ -11,7 +11,11 @@ A simple desktop application that displays real-time CPU usage, RAM usage, and b
 
 ## 📷 Screenshot
 
-<img width="698" height="752" alt="image" src="https://github.com/user-attachments/assets/527cc839-023f-4249-bc88-e3a0fe7c17e1" />
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/820f90b9-aef1-4742-9ff7-93de79c53477" width="400" alt="System Monitor Screenshot" />
+</p>
+
+
 
 
 
