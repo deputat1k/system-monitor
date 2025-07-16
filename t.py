@@ -43,14 +43,22 @@ class SystemMonitorApp(tk.Tk):
 
         self.label_cpu = tk.Label(self, text="CPU: 0%", font=("Segoe UI", 14), bg="#121212", fg="cyan")
         self.label_cpu.pack()
-        self.label_cpu_freq = tk.Label(self, text="CPU speed: 0 MHz", font=("Segoe UI", 12), bg="#121212", fg="cyan")
+
+        self.label_cpu_freq = tk.Label(self, text="CPU max speed: 0 GHz", font=("Segoe UI", 12), bg="#121212", fg="cyan")
         self.label_cpu_freq.pack()
+
+        self.label_cpu_temp = tk.Label(self, text="CPU temp: N/A", font=("Segoe UI", 12), bg="#121212", fg="lightblue")
+        self.label_cpu_temp.pack()
+
+        self.label_cpu_cores = tk.Label(self, text="Cores: N/A", font=("Segoe UI", 12), bg="#121212", fg="lightgreen")
+        self.label_cpu_cores.pack()
 
         self.label_battery = tk.Label(self, text="Battery: N/A", font=("Segoe UI", 12), bg="#121212", fg="orange")
         self.label_battery.pack()
 
         self.label_mem = tk.Label(self, text="RAM: 0%", font=("Segoe UI", 14), bg="#121212", fg="magenta")
         self.label_mem.pack()
+
         self.label_mem_info = tk.Label(self, text="Memory: 0 MB / 0 MB", font=("Segoe UI", 12), bg="#121212", fg="magenta")
         self.label_mem_info.pack()
 
@@ -65,11 +73,22 @@ class SystemMonitorApp(tk.Tk):
         status = "on charging" if charging else "not on charge"
         return f"Battery: {percent:.0f}% ({status})"
 
+    def get_cpu_temperature(self):
+        try:
+            temps = psutil.sensors_temperatures()
+            for name in temps:
+                for entry in temps[name]:
+                    if "cpu" in entry.label.lower() or "core" in entry.label.lower() or not entry.label:
+                        return f"{entry.current:.1f}°C"
+            return "N/A"
+        except Exception:
+            return "N/A"
+
     def update_plot(self, frame):
         cpu = psutil.cpu_percent()
         mem = psutil.virtual_memory()
         freq = psutil.cpu_freq()
-        cpu_freq = freq.current if freq else 0
+        cpu_freq = freq.max if freq else 0
 
         self.cpu_usage.append(cpu)
         self.mem_usage.append(mem.percent)
@@ -86,8 +105,11 @@ class SystemMonitorApp(tk.Tk):
         self.ax_cpu.set_xlim(0, self.max_len)
         self.ax_mem.set_xlim(0, self.max_len)
 
+       
         self.label_cpu.config(text=f"CPU: {cpu:.1f}%")
-        self.label_cpu_freq.config(text=f"CPU speed: {cpu_freq:.1f} MHz")
+        self.label_cpu_freq.config(text=f"CPU max speed: {cpu_freq / 1000:.1f} GHz")
+        self.label_cpu_temp.config(text=f"CPU temp: {self.get_cpu_temperature()}")
+        self.label_cpu_cores.config(text=f"Cores: {psutil.cpu_count(logical=False)} physical / {psutil.cpu_count()} logical")
         self.label_battery.config(text=self.get_battery_status())
         self.label_mem.config(text=f"RAM: {mem.percent:.1f}%")
         self.label_mem_info.config(text=f"Memory: {mem.used // (1024**2)} MB / {mem.total // (1024**2)} MB")
