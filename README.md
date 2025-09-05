@@ -25,15 +25,17 @@ A simple desktop application that displays real-time CPU usage, RAM usage, and b
    ```bash
    git clone https://github.com/deputat1k/system-monitor.git
    cd system-monitor
-
+`
     Make sure you have Python 3 installed. Then install required packages:
 
+```
 pip install -r requirements.txt
-
+```
 If requirements.txt is missing, install manually:
-
+```
 pip install psutil matplotlib
-
+```
 Run the application:
-
+```
 python t.py
+```
