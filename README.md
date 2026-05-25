@@ -9,8 +9,10 @@ A lightweight desktop dashboard for live system telemetry. The app is built with
 - Pause, resume, and clear controls for the live chart history.
 - Adjustable refresh interval from 500 ms to 5000 ms.
 - Compact mode for keeping the monitor visible while working.
+- Micro mode: a tiny always-on-top overlay that displays one metric at a time.
+- Mouse wheel switching in Micro mode for GPU, CPU, memory, disk, network, battery, and uptime.
 - Metric cards for CPU, memory, disk usage, network speed, battery status, and system uptime.
-- Dark desktop-friendly interface with clearer spacing and contrast.
+- Rounded desktop controls and a dark interface with clearer spacing and contrast.
 
 ## Requirements
 
@@ -18,7 +20,7 @@ A lightweight desktop dashboard for live system telemetry. The app is built with
 - Windows, macOS, or Linux
 - Python packages listed in `requirements.txt`
 
-Some hardware sensors, such as CPU temperature or battery status, may be unavailable on certain systems. When that happens, the app displays `N/A` for that metric.
+Some hardware sensors, such as CPU temperature, GPU usage, or battery status, may be unavailable on certain systems. When that happens, the app displays `N/A` for that metric. NVIDIA GPU usage is detected through `nvidia-smi` when available; Windows GPU engine counters are used as a fallback.
 
 ## Installation
 
@@ -87,6 +89,9 @@ The generated executable will be placed in `dist/SystemMonitor.exe`.
 - `Pause` / `Resume`: stops or continues live updates.
 - `Clear`: resets the chart history.
 - `Compact` / `Full`: switches between the full dashboard and a smaller chart-focused view.
+- `Micro`: opens the tiny overlay mode.
+- Mouse wheel over the Micro mode window: cycles through the available metrics.
+- `Full` inside Micro mode: returns to the full dashboard.
 
 ## Technologies
 

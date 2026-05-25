@@ -1,4 +1,6 @@
 import os
+import subprocess
+import threading
 import time
 import tkinter as tk
 
@@ -9,6 +11,114 @@ matplotlib.use("TkAgg")
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+
+
+class RoundedButton(tk.Canvas):
+    def __init__(
+        self,
+        master,
+        text,
+        command,
+        palette,
+        width=76,
+        height=34,
+        radius=17,
+        fill=None,
+        hover_fill=None,
+        text_color=None,
+        canvas_bg=None,
+    ):
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            bg=canvas_bg or palette["bg"],
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        self.command = command
+        self.palette = palette
+        self.text = text
+        self.radius = radius
+        self.fill = fill or palette["card_alt"]
+        self.hover_fill = hover_fill or palette["border"]
+        self.text_color = text_color or palette["text"]
+        self.current_fill = self.fill
+        self.is_pressed = False
+
+        self.bind("<Configure>", lambda _event: self.draw())
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<ButtonPress-1>", self.on_press)
+        self.bind("<ButtonRelease-1>", self.on_release)
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        radius = min(self.radius, width // 2, height // 2)
+        fill = self.palette["track"] if self.is_pressed else self.current_fill
+
+        points = [
+            radius,
+            0,
+            width - radius,
+            0,
+            width,
+            0,
+            width,
+            radius,
+            width,
+            height - radius,
+            width,
+            height,
+            width - radius,
+            height,
+            radius,
+            height,
+            0,
+            height,
+            0,
+            height - radius,
+            0,
+            radius,
+            0,
+            0,
+        ]
+        self.create_polygon(points, smooth=True, fill=fill, outline=self.palette["border"])
+        self.create_text(
+            width / 2,
+            height / 2,
+            text=self.text,
+            fill=self.text_color,
+            font=("Segoe UI", 9, "bold"),
+        )
+
+    def set_text(self, text):
+        self.text = text
+        self.draw()
+
+    def on_enter(self, _event):
+        self.current_fill = self.hover_fill
+        self.draw()
+
+    def on_leave(self, _event):
+        self.current_fill = self.fill
+        self.is_pressed = False
+        self.draw()
+
+    def on_press(self, _event):
+        self.is_pressed = True
+        self.draw()
+
+    def on_release(self, event):
+        was_pressed = self.is_pressed
+        self.is_pressed = False
+        self.draw()
+        if was_pressed and 0 <= event.x <= self.winfo_width() and 0 <= event.y <= self.winfo_height():
+            self.command()
 
 
 class MetricCard(tk.Frame):
@@ -121,9 +231,28 @@ class SystemMonitorApp(tk.Tk):
         self.mem_usage = []
         self.paused = False
         self.compact = False
+        self.micro_mode = False
+        self.normal_geometry = "1040x700"
+        self.micro_width = 190
+        self.micro_height = 94
+        self.micro_metric_keys = ["gpu", "cpu", "ram", "disk", "network", "battery", "system"]
+        self.micro_metric_index = 0
+        self.micro_drag_offset = (0, 0)
         self.update_job = None
         self.last_net = psutil.net_io_counters()
         self.last_net_time = time.monotonic()
+        self.gpu_cache = {
+            "title": "GPU LOAD",
+            "value": "N/A",
+            "subtitle": "Waiting for GPU telemetry",
+            "percent": None,
+            "accent": self.palette["green"],
+        }
+        self.gpu_cache_time = 0
+        self.gpu_query_running = False
+        self.gpu_poll_interval = 3.0
+        self.gpu_lock = threading.Lock()
+        self.latest_metrics = {}
 
         self.topmost_var = tk.BooleanVar(value=True)
         self.interval_var = tk.StringVar(value="1000")
@@ -135,9 +264,14 @@ class SystemMonitorApp(tk.Tk):
 
     def build_layout(self):
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-        header = tk.Frame(self, bg=self.palette["bg"])
+        self.main_shell = tk.Frame(self, bg=self.palette["bg"])
+        self.main_shell.grid(row=0, column=0, sticky="nsew")
+        self.main_shell.grid_columnconfigure(0, weight=1)
+        self.main_shell.grid_rowconfigure(1, weight=1)
+
+        header = tk.Frame(self.main_shell, bg=self.palette["bg"])
         header.grid(row=0, column=0, sticky="ew", padx=24, pady=(18, 12))
         header.grid_columnconfigure(0, weight=1)
 
@@ -217,10 +351,13 @@ class SystemMonitorApp(tk.Tk):
         clear_button = self.make_button(controls, "Clear", self.clear_history)
         clear_button.grid(row=0, column=5, padx=(0, 8))
 
-        self.compact_button = self.make_button(controls, "Compact", self.toggle_compact)
-        self.compact_button.grid(row=0, column=6)
+        self.compact_button = self.make_button(controls, "Compact", self.toggle_compact, width=82)
+        self.compact_button.grid(row=0, column=6, padx=(0, 8))
 
-        body = tk.Frame(self, bg=self.palette["bg"])
+        self.micro_button = self.make_button(controls, "Micro", self.enter_micro_mode, width=72)
+        self.micro_button.grid(row=0, column=7)
+
+        body = tk.Frame(self.main_shell, bg=self.palette["bg"])
         body.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 22))
         body.grid_columnconfigure(0, weight=3)
         body.grid_columnconfigure(1, weight=1)
@@ -278,6 +415,95 @@ class SystemMonitorApp(tk.Tk):
         for index, card in enumerate(self.cards.values()):
             card.grid(row=index, column=0, sticky="ew", pady=(0, 10))
 
+        self.build_micro_layout()
+
+    def build_micro_layout(self):
+        self.micro_shell = tk.Frame(self, bg=self.palette["bg"])
+        self.micro_shell.grid(row=0, column=0, sticky="nsew")
+        self.micro_shell.grid_columnconfigure(0, weight=1)
+        self.micro_shell.grid_rowconfigure(0, weight=1)
+        self.micro_shell.grid_remove()
+
+        self.micro_panel = tk.Frame(
+            self.micro_shell,
+            bg=self.palette["card"],
+            highlightbackground=self.palette["border"],
+            highlightthickness=1,
+            bd=0,
+        )
+        self.micro_panel.grid(row=0, column=0, sticky="nsew")
+        self.micro_panel.grid_columnconfigure(0, weight=1)
+
+        self.micro_title = tk.Label(
+            self.micro_panel,
+            text="GPU LOAD",
+            bg=self.palette["card"],
+            fg=self.palette["muted"],
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
+        )
+        self.micro_title.grid(row=0, column=0, sticky="ew", padx=(12, 4), pady=(8, 0))
+
+        self.micro_exit_button = RoundedButton(
+            self.micro_panel,
+            text="Full",
+            command=self.exit_micro_mode,
+            palette=self.palette,
+            width=44,
+            height=24,
+            radius=12,
+            fill=self.palette["card_alt"],
+            hover_fill=self.palette["border"],
+            canvas_bg=self.palette["card"],
+        )
+        self.micro_exit_button.grid(row=0, column=1, sticky="ne", padx=(0, 8), pady=(7, 0))
+
+        self.micro_value = tk.Label(
+            self.micro_panel,
+            text="N/A",
+            bg=self.palette["card"],
+            fg=self.palette["green"],
+            font=("Segoe UI", 22, "bold"),
+            anchor="w",
+        )
+        self.micro_value.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 0))
+
+        self.micro_subtitle = tk.Label(
+            self.micro_panel,
+            text="Waiting for GPU telemetry",
+            bg=self.palette["card"],
+            fg=self.palette["text"],
+            font=("Segoe UI", 8),
+            anchor="w",
+        )
+        self.micro_subtitle.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 4))
+
+        self.micro_bar = tk.Canvas(
+            self.micro_panel,
+            height=5,
+            bg=self.palette["card"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.micro_bar.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 9))
+
+        for widget in (
+            self.micro_shell,
+            self.micro_panel,
+            self.micro_title,
+            self.micro_value,
+            self.micro_subtitle,
+            self.micro_bar,
+        ):
+            widget.bind("<MouseWheel>", self.on_micro_mouse_wheel)
+            widget.bind("<Button-4>", self.on_micro_mouse_wheel)
+            widget.bind("<Button-5>", self.on_micro_mouse_wheel)
+            widget.bind("<ButtonPress-1>", self.start_micro_drag)
+            widget.bind("<B1-Motion>", self.drag_micro_window)
+
+        for event_name in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.micro_exit_button.bind(event_name, self.on_micro_mouse_wheel)
+
     def build_chart(self, master):
         self.fig = Figure(figsize=(7.2, 5.2), dpi=100, facecolor=self.palette["panel"])
         self.ax_cpu = self.fig.add_subplot(211)
@@ -301,29 +527,114 @@ class SystemMonitorApp(tk.Tk):
         self.canvas.get_tk_widget().configure(bg=self.palette["panel"], highlightthickness=0)
         self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=14, pady=14)
 
-    def make_button(self, master, text, command):
-        return tk.Button(
+    def make_button(self, master, text, command, width=76, height=34):
+        return RoundedButton(
             master,
             text=text,
             command=command,
-            bg=self.palette["card_alt"],
-            fg=self.palette["text"],
-            activebackground=self.palette["border"],
-            activeforeground=self.palette["text"],
-            relief="flat",
-            bd=0,
-            padx=12,
-            pady=7,
-            font=("Segoe UI", 9, "bold"),
-            cursor="hand2",
+            palette=self.palette,
+            width=width,
+            height=height,
+            radius=height // 2,
         )
 
     def toggle_topmost(self):
+        self.attributes("-topmost", True if self.micro_mode else bool(self.topmost_var.get()))
+
+    def enter_micro_mode(self):
+        if self.micro_mode:
+            return
+
+        self.micro_mode = True
+        self.normal_geometry = self.geometry()
+        x = max(0, self.winfo_x() + self.winfo_width() - self.micro_width - 24)
+        y = max(0, self.winfo_y() + 42)
+
+        self.main_shell.grid_remove()
+        self.micro_shell.grid()
+        self.minsize(1, 1)
+        self.resizable(False, False)
+        self.geometry(f"{self.micro_width}x{self.micro_height}+{x}+{y}")
+        self.update_idletasks()
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.lift()
+        self.update_micro_display()
+
+    def exit_micro_mode(self):
+        if not self.micro_mode:
+            return
+
+        self.micro_mode = False
+        self.overrideredirect(False)
+        self.micro_shell.grid_remove()
+        self.main_shell.grid()
+        self.resizable(True, True)
+        self.minsize(820, 560)
+        self.geometry(self.normal_geometry)
         self.attributes("-topmost", bool(self.topmost_var.get()))
+        self.after(10, self.lift)
+
+    def start_micro_drag(self, event):
+        self.micro_drag_offset = (
+            event.x_root - self.winfo_x(),
+            event.y_root - self.winfo_y(),
+        )
+
+    def drag_micro_window(self, event):
+        x = event.x_root - self.micro_drag_offset[0]
+        y = event.y_root - self.micro_drag_offset[1]
+        self.geometry(f"+{x}+{y}")
+
+    def on_micro_mouse_wheel(self, event):
+        if not self.micro_mode:
+            return
+
+        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+            self.cycle_micro_metric(-1)
+        else:
+            self.cycle_micro_metric(1)
+
+    def cycle_micro_metric(self, step):
+        self.micro_metric_index = (self.micro_metric_index + step) % len(self.micro_metric_keys)
+        self.update_micro_display()
+
+    def update_micro_display(self):
+        if not hasattr(self, "micro_title"):
+            return
+
+        metrics = self.latest_metrics or {"gpu": self.gpu_cache}
+        key = self.micro_metric_keys[self.micro_metric_index]
+        metric = metrics.get(key, self.gpu_cache)
+
+        self.micro_title.config(text=metric["title"].upper(), fg=self.palette["muted"])
+        self.micro_value.config(text=metric["value"], fg=metric["accent"])
+        self.micro_subtitle.config(text=self.shorten(metric["subtitle"], 30))
+        self.draw_micro_bar(metric.get("percent"), metric["accent"])
+
+    def draw_micro_bar(self, percent, accent):
+        self.micro_bar.delete("all")
+        width = max(1, self.micro_bar.winfo_width())
+        height = max(1, self.micro_bar.winfo_height())
+        self.micro_bar.create_rectangle(0, 0, width, height, fill=self.palette["track"], width=0)
+
+        if percent is None:
+            fill_width = width
+            fill = self.palette["border"]
+        else:
+            fill_width = int(width * min(max(percent, 0), 100) / 100)
+            fill = accent
+
+        self.micro_bar.create_rectangle(0, 0, fill_width, height, fill=fill, width=0)
+
+    def shorten(self, text, max_length):
+        if len(text) <= max_length:
+            return text
+        return text[: max_length - 3].rstrip() + "..."
 
     def toggle_pause(self):
         self.paused = not self.paused
-        self.pause_button.config(text="Resume" if self.paused else "Pause")
+        self.pause_button.set_text("Resume" if self.paused else "Pause")
         self.status_label.config(
             text="Updates paused" if self.paused else "Live desktop telemetry"
         )
@@ -332,11 +643,11 @@ class SystemMonitorApp(tk.Tk):
         self.compact = not self.compact
         if self.compact:
             self.metrics_panel.grid_remove()
-            self.compact_button.config(text="Full")
+            self.compact_button.set_text("Full")
             self.geometry("820x560")
         else:
             self.metrics_panel.grid()
-            self.compact_button.config(text="Compact")
+            self.compact_button.set_text("Compact")
             self.geometry("1040x700")
 
     def clear_history(self):
@@ -356,6 +667,137 @@ class SystemMonitorApp(tk.Tk):
         if os.name == "nt":
             return os.environ.get("SystemDrive", "C:") + "\\"
         return "/"
+
+    def get_subprocess_creationflags(self):
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            return subprocess.CREATE_NO_WINDOW
+        return 0
+
+    def get_gpu_details(self):
+        now = time.monotonic()
+        with self.gpu_lock:
+            cache = self.gpu_cache.copy()
+            should_refresh = (
+                now - self.gpu_cache_time > self.gpu_poll_interval
+                and not self.gpu_query_running
+            )
+            if should_refresh:
+                self.gpu_query_running = True
+
+        if should_refresh:
+            thread = threading.Thread(target=self.refresh_gpu_cache, daemon=True)
+            thread.start()
+
+        return cache
+
+    def refresh_gpu_cache(self):
+        try:
+            details = self.query_nvidia_gpu() or self.query_windows_gpu()
+            if details is None:
+                details = {
+                    "title": "GPU LOAD",
+                    "value": "N/A",
+                    "subtitle": "No GPU telemetry",
+                    "percent": None,
+                    "accent": self.palette["green"],
+                }
+        finally:
+            if "details" not in locals():
+                details = {
+                    "title": "GPU LOAD",
+                    "value": "N/A",
+                    "subtitle": "No GPU telemetry",
+                    "percent": None,
+                    "accent": self.palette["green"],
+                }
+            with self.gpu_lock:
+                self.gpu_cache = details
+                self.gpu_cache_time = time.monotonic()
+                self.gpu_query_running = False
+
+    def query_nvidia_gpu(self):
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=self.get_subprocess_creationflags(),
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            return None
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        line = result.stdout.strip().splitlines()[0]
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 5:
+            return None
+
+        name, load, mem_used, mem_total, temp = parts[:5]
+        try:
+            load_percent = float(load)
+        except ValueError:
+            return None
+
+        return {
+            "title": "GPU LOAD",
+            "value": f"{load_percent:.0f}%",
+            "subtitle": f"{self.shorten(name, 18)} | {mem_used}/{mem_total} MB | {temp} deg C",
+            "percent": load_percent,
+            "accent": self.palette["green"],
+        }
+
+    def query_windows_gpu(self):
+        if os.name != "nt":
+            return None
+
+        command = (
+            "$samples = (Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples "
+            "| Where-Object { $_.InstanceName -match 'engtype_3d' }; "
+            "$sum = ($samples | Measure-Object -Property CookedValue -Sum).Sum; "
+            "if ($null -eq $sum) { $sum = 0 }; "
+            "[math]::Round([math]::Min([double]$sum, 100), 1)"
+        )
+
+        try:
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    command,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=4,
+                creationflags=self.get_subprocess_creationflags(),
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            return None
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        try:
+            load_percent = float(result.stdout.strip().splitlines()[-1].replace(",", "."))
+        except ValueError:
+            return None
+
+        return {
+            "title": "GPU LOAD",
+            "value": f"{load_percent:.0f}%",
+            "subtitle": "Windows 3D engine",
+            "percent": load_percent,
+            "accent": self.palette["green"],
+        }
 
     def get_cpu_temperature(self):
         try:
@@ -421,6 +863,7 @@ class SystemMonitorApp(tk.Tk):
         freq = psutil.cpu_freq()
         net = psutil.net_io_counters()
         now = time.monotonic()
+        gpu = self.get_gpu_details()
 
         elapsed = max(now - self.last_net_time, 0.001)
         download_speed = (net.bytes_recv - self.last_net.bytes_recv) / elapsed
@@ -439,6 +882,57 @@ class SystemMonitorApp(tk.Tk):
         temp = self.get_cpu_temperature()
         physical_cores = psutil.cpu_count(logical=False) or "N/A"
         logical_cores = psutil.cpu_count(logical=True) or "N/A"
+        battery_value, battery_subtitle, battery_percent = self.get_battery_details()
+        uptime_value = self.format_uptime()
+        current_time = time.strftime("%H:%M:%S")
+        download_value = self.format_bytes(download_speed, "B/s")
+        upload_value = self.format_bytes(upload_speed, "B/s")
+
+        self.latest_metrics = {
+            "gpu": gpu,
+            "cpu": {
+                "title": "CPU LOAD",
+                "value": f"{cpu:.1f}%",
+                "subtitle": f"{physical_cores}/{logical_cores} cores | {current_freq:.2f} GHz",
+                "percent": cpu,
+                "accent": self.palette["blue"],
+            },
+            "ram": {
+                "title": "RAM",
+                "value": f"{mem.percent:.1f}%",
+                "subtitle": f"{self.format_bytes(mem.used)} / {self.format_bytes(mem.total)}",
+                "percent": mem.percent,
+                "accent": self.palette["violet"],
+            },
+            "disk": {
+                "title": "DISK",
+                "value": f"{disk.percent:.1f}%",
+                "subtitle": f"{self.format_bytes(disk.used)} / {self.format_bytes(disk.total)}",
+                "percent": disk.percent,
+                "accent": self.palette["green"],
+            },
+            "network": {
+                "title": "NET DOWN",
+                "value": download_value,
+                "subtitle": f"Up {upload_value}",
+                "percent": None,
+                "accent": self.palette["amber"],
+            },
+            "battery": {
+                "title": "BATTERY",
+                "value": battery_value,
+                "subtitle": battery_subtitle,
+                "percent": battery_percent,
+                "accent": self.palette["green"],
+            },
+            "system": {
+                "title": "UPTIME",
+                "value": uptime_value,
+                "subtitle": current_time,
+                "percent": None,
+                "accent": self.palette["blue"],
+            },
+        }
 
         self.cards["cpu"].update(
             f"{cpu:.1f}%",
@@ -456,20 +950,21 @@ class SystemMonitorApp(tk.Tk):
             disk.percent,
         )
         self.cards["network"].update(
-            self.format_bytes(download_speed, "B/s"),
-            f"Down | Up {self.format_bytes(upload_speed, 'B/s')}",
+            download_value,
+            f"Down | Up {upload_value}",
             None,
         )
 
-        battery_value, battery_subtitle, battery_percent = self.get_battery_details()
         self.cards["battery"].update(battery_value, battery_subtitle, battery_percent)
         self.cards["system"].update(
-            self.format_uptime(),
-            f"Uptime | {time.strftime('%H:%M:%S')}",
+            uptime_value,
+            f"Uptime | {current_time}",
             None,
         )
 
         self.refresh_chart()
+        if self.micro_mode:
+            self.update_micro_display()
 
     def refresh_chart(self):
         x_values = list(range(len(self.cpu_usage)))
