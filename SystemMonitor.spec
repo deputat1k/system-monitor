@@ -4,7 +4,7 @@
 a = Analysis(
     ['t.py'],
     pathex=[],
-    binaries=[],
+    binaries=[('sensor-helper/publish/SensorProbe.exe', '.')],
     datas=[],
     hiddenimports=[],
     hookspath=[],
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    uac_admin=True,
 )

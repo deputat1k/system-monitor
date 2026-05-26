@@ -3,3 +3,5 @@ __pycache__/
 build/
 .venv/
 venv/
+sensor-helper/bin/
+sensor-helper/obj/

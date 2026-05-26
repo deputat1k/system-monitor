@@ -1,8 +1,11 @@
+import ctypes
+import json
 import os
 import subprocess
 import threading
 import time
 import tkinter as tk
+import sys
 
 import matplotlib
 import psutil
@@ -121,6 +124,172 @@ class RoundedButton(tk.Canvas):
             self.command()
 
 
+class TextPill(tk.Canvas):
+    def __init__(
+        self,
+        master,
+        text,
+        palette,
+        width=86,
+        height=30,
+        fill=None,
+        canvas_bg=None,
+    ):
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            bg=canvas_bg or palette["bg"],
+            bd=0,
+            highlightthickness=0,
+        )
+        self.palette = palette
+        self.text = text
+        self.fill = fill or palette["panel"]
+        self.bind("<Configure>", lambda _event: self.draw())
+        self.draw()
+
+    def set_text(self, text):
+        self.text = text
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        radius = min(height // 2, width // 2)
+        self.create_rounded_rect(0, 0, width, height, radius, self.fill, self.palette["border"])
+        self.create_text(
+            width / 2,
+            height / 2,
+            text=self.text,
+            fill=self.palette["text"],
+            font=("Segoe UI", 9, "bold"),
+        )
+
+    def create_rounded_rect(self, x1, y1, x2, y2, radius, fill, outline):
+        points = [
+            x1 + radius,
+            y1,
+            x2 - radius,
+            y1,
+            x2,
+            y1,
+            x2,
+            y1 + radius,
+            x2,
+            y2 - radius,
+            x2,
+            y2,
+            x2 - radius,
+            y2,
+            x1 + radius,
+            y2,
+            x1,
+            y2,
+            x1,
+            y2 - radius,
+            x1,
+            y1 + radius,
+            x1,
+            y1,
+        ]
+        self.create_polygon(points, smooth=True, fill=fill, outline=outline)
+
+
+class ToggleSwitch(tk.Canvas):
+    def __init__(self, master, text, variable, command, palette, width=118, height=34):
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            bg=palette["bg"],
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2",
+        )
+        self.text = text
+        self.variable = variable
+        self.command = command
+        self.palette = palette
+        self.hovered = False
+        self.bind("<Configure>", lambda _event: self.draw())
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<ButtonRelease-1>", self.toggle)
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        active = bool(self.variable.get())
+        shell = self.palette["card_alt"] if self.hovered else self.palette["panel"]
+        track = self.palette["blue"] if active else self.palette["track"]
+        knob_x = width - 23 if active else width - 43
+
+        self.create_rounded_rect(0, 0, width, height, height // 2, shell, self.palette["border"])
+        self.create_text(
+            12,
+            height / 2,
+            text=self.text,
+            fill=self.palette["text"],
+            font=("Segoe UI", 9, "bold"),
+            anchor="w",
+        )
+        self.create_rounded_rect(width - 48, 7, width - 10, height - 7, 10, track, track)
+        self.create_oval(
+            knob_x,
+            10,
+            knob_x + 14,
+            height - 10,
+            fill=self.palette["text"],
+            outline=self.palette["text"],
+        )
+
+    def create_rounded_rect(self, x1, y1, x2, y2, radius, fill, outline):
+        points = [
+            x1 + radius,
+            y1,
+            x2 - radius,
+            y1,
+            x2,
+            y1,
+            x2,
+            y1 + radius,
+            x2,
+            y2 - radius,
+            x2,
+            y2,
+            x2 - radius,
+            y2,
+            x1 + radius,
+            y2,
+            x1,
+            y2,
+            x1,
+            y2 - radius,
+            x1,
+            y1 + radius,
+            x1,
+            y1,
+        ]
+        self.create_polygon(points, smooth=True, fill=fill, outline=outline)
+
+    def on_enter(self, _event):
+        self.hovered = True
+        self.draw()
+
+    def on_leave(self, _event):
+        self.hovered = False
+        self.draw()
+
+    def toggle(self, _event):
+        self.variable.set(not self.variable.get())
+        self.draw()
+        self.command()
+
+
 class MetricCard(tk.Frame):
     def __init__(self, master, title, accent, palette):
         super().__init__(
@@ -141,44 +310,47 @@ class MetricCard(tk.Frame):
             text=title.upper(),
             bg=palette["card"],
             fg=palette["muted"],
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 8, "bold"),
             anchor="w",
         )
-        self.title_label.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 0))
+        self.title_label.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 0))
 
         self.value_label = tk.Label(
             self,
             text="--",
             bg=palette["card"],
             fg=accent,
-            font=("Segoe UI", 21, "bold"),
+            font=("Segoe UI", 17, "bold"),
             anchor="w",
         )
-        self.value_label.grid(row=1, column=0, sticky="ew", padx=14, pady=(2, 0))
+        self.value_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 0))
 
         self.subtitle_label = tk.Label(
             self,
             text="",
             bg=palette["card"],
             fg=palette["text"],
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 8),
             anchor="w",
             justify="left",
-            wraplength=230,
+            wraplength=220,
         )
-        self.subtitle_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(2, 10))
+        self.subtitle_label.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 6))
 
         self.bar = tk.Canvas(
             self,
-            height=6,
+            height=5,
             bg=palette["card"],
             highlightthickness=0,
             bd=0,
         )
-        self.bar.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 14))
+        self.bar.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 9))
         self.bar.bind("<Configure>", lambda _event: self.draw_bar())
 
-    def update(self, value, subtitle="", percent=None):
+    def update(self, value, subtitle="", percent=None, accent=None):
+        if accent is not None:
+            self.accent = accent
+            self.value_label.config(fg=accent)
         self.percent = percent
         self.value_label.config(text=value)
         self.subtitle_label.config(text=subtitle)
@@ -221,8 +393,8 @@ class SystemMonitorApp(tk.Tk):
         }
 
         self.title("System Monitor")
-        self.geometry("1040x700")
-        self.minsize(820, 560)
+        self.geometry("1120x720")
+        self.minsize(900, 600)
         self.configure(bg=self.palette["bg"])
         self.attributes("-topmost", True)
 
@@ -232,26 +404,42 @@ class SystemMonitorApp(tk.Tk):
         self.paused = False
         self.compact = False
         self.micro_mode = False
-        self.normal_geometry = "1040x700"
+        self.normal_geometry = "1120x720"
         self.micro_width = 190
         self.micro_height = 94
-        self.micro_metric_keys = ["gpu", "cpu", "ram", "disk", "network", "battery", "system"]
+        self.micro_metric_keys = [
+            "gpu",
+            "temperature",
+            "cpu",
+            "ram",
+            "disk",
+            "network",
+            "battery",
+            "system",
+        ]
         self.micro_metric_index = 0
         self.micro_drag_offset = (0, 0)
         self.update_job = None
         self.last_net = psutil.net_io_counters()
         self.last_net_time = time.monotonic()
+        self.is_admin = self.check_admin()
         self.gpu_cache = {
             "title": "GPU LOAD",
             "value": "N/A",
             "subtitle": "Waiting for GPU telemetry",
             "percent": None,
             "accent": self.palette["green"],
+            "temperature": None,
         }
         self.gpu_cache_time = 0
         self.gpu_query_running = False
         self.gpu_poll_interval = 3.0
         self.gpu_lock = threading.Lock()
+        self.temperature_cache = self.get_empty_temperature_cache("Checking sensors")
+        self.temperature_cache_time = 0
+        self.temperature_query_running = False
+        self.temperature_poll_interval = 5.0
+        self.temperature_lock = threading.Lock()
         self.latest_metrics = {}
 
         self.topmost_var = tk.BooleanVar(value=True)
@@ -298,64 +486,80 @@ class SystemMonitorApp(tk.Tk):
         controls = tk.Frame(header, bg=self.palette["bg"])
         controls.grid(row=0, column=1, rowspan=2, sticky="e")
 
-        self.topmost_check = tk.Checkbutton(
+        self.topmost_toggle = ToggleSwitch(
             controls,
-            text="Always on top",
+            text="Topmost",
             variable=self.topmost_var,
             command=self.toggle_topmost,
-            bg=self.palette["bg"],
-            fg=self.palette["text"],
-            activebackground=self.palette["bg"],
-            activeforeground=self.palette["text"],
-            selectcolor=self.palette["panel"],
-            font=("Segoe UI", 9, "bold"),
+            palette=self.palette,
         )
-        self.topmost_check.grid(row=0, column=0, padx=(0, 10))
+        self.topmost_toggle.grid(row=0, column=0, padx=(0, 10))
+
+        refresh_group = tk.Frame(controls, bg=self.palette["bg"])
+        refresh_group.grid(row=0, column=1, padx=(0, 10))
 
         tk.Label(
-            controls,
+            refresh_group,
             text="Refresh",
             bg=self.palette["bg"],
             fg=self.palette["muted"],
-            font=("Segoe UI", 9),
-        ).grid(row=0, column=1, padx=(0, 6))
+            font=("Segoe UI", 8, "bold"),
+        ).grid(row=0, column=0, columnspan=3, pady=(0, 2))
 
-        self.interval_spin = tk.Spinbox(
-            controls,
-            from_=500,
-            to=5000,
-            increment=250,
-            textvariable=self.interval_var,
-            width=6,
-            justify="center",
-            bg=self.palette["panel"],
-            fg=self.palette["text"],
-            insertbackground=self.palette["text"],
-            buttonbackground=self.palette["card_alt"],
-            relief="flat",
-            font=("Segoe UI", 9),
+        self.refresh_down_button = RoundedButton(
+            refresh_group,
+            text="-",
+            command=lambda: self.adjust_refresh_interval(-250),
+            palette=self.palette,
+            width=28,
+            height=28,
+            radius=14,
         )
-        self.interval_spin.grid(row=0, column=2, padx=(0, 6))
+        self.refresh_down_button.grid(row=1, column=0, padx=(0, 5))
 
-        tk.Label(
+        self.interval_pill = TextPill(
+            refresh_group,
+            text=f"{self.get_refresh_interval()} ms",
+            palette=self.palette,
+            width=78,
+            height=28,
+        )
+        self.interval_pill.grid(row=1, column=1)
+
+        self.refresh_up_button = RoundedButton(
+            refresh_group,
+            text="+",
+            command=lambda: self.adjust_refresh_interval(250),
+            palette=self.palette,
+            width=28,
+            height=28,
+            radius=14,
+        )
+        self.refresh_up_button.grid(row=1, column=2, padx=(5, 0))
+
+        actions = tk.Frame(controls, bg=self.palette["bg"])
+        actions.grid(row=0, column=2)
+
+        self.pause_button = self.make_button(actions, "Pause", self.toggle_pause)
+        self.pause_button.grid(row=0, column=0, padx=(0, 8))
+
+        clear_button = self.make_button(actions, "Clear", self.clear_history)
+        clear_button.grid(row=0, column=1, padx=(0, 8))
+
+        self.compact_button = self.make_button(actions, "Compact", self.toggle_compact, width=82)
+        self.compact_button.grid(row=0, column=2, padx=(0, 8))
+
+        self.micro_button = self.make_button(actions, "Micro", self.enter_micro_mode, width=72)
+        self.micro_button.grid(row=0, column=3)
+
+        self.temp_badge = tk.Label(
             controls,
-            text="ms",
+            text="Temp: --",
             bg=self.palette["bg"],
             fg=self.palette["muted"],
-            font=("Segoe UI", 9),
-        ).grid(row=0, column=3, padx=(0, 12))
-
-        self.pause_button = self.make_button(controls, "Pause", self.toggle_pause)
-        self.pause_button.grid(row=0, column=4, padx=(0, 8))
-
-        clear_button = self.make_button(controls, "Clear", self.clear_history)
-        clear_button.grid(row=0, column=5, padx=(0, 8))
-
-        self.compact_button = self.make_button(controls, "Compact", self.toggle_compact, width=82)
-        self.compact_button.grid(row=0, column=6, padx=(0, 8))
-
-        self.micro_button = self.make_button(controls, "Micro", self.enter_micro_mode, width=72)
-        self.micro_button.grid(row=0, column=7)
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.temp_badge.grid(row=1, column=2, sticky="e", pady=(4, 0))
 
         body = tk.Frame(self.main_shell, bg=self.palette["bg"])
         body.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 22))
@@ -404,6 +608,10 @@ class SystemMonitorApp(tk.Tk):
         self.metrics_panel.grid_columnconfigure(0, weight=1)
 
         self.cards = {
+            "gpu": MetricCard(self.metrics_panel, "GPU", self.palette["green"], self.palette),
+            "temperature": MetricCard(
+                self.metrics_panel, "Temperature", self.palette["amber"], self.palette
+            ),
             "cpu": MetricCard(self.metrics_panel, "CPU", self.palette["blue"], self.palette),
             "ram": MetricCard(self.metrics_panel, "Memory", self.palette["violet"], self.palette),
             "disk": MetricCard(self.metrics_panel, "Disk", self.palette["green"], self.palette),
@@ -540,6 +748,8 @@ class SystemMonitorApp(tk.Tk):
 
     def toggle_topmost(self):
         self.attributes("-topmost", True if self.micro_mode else bool(self.topmost_var.get()))
+        if hasattr(self, "topmost_toggle"):
+            self.topmost_toggle.draw()
 
     def enter_micro_mode(self):
         if self.micro_mode:
@@ -570,7 +780,7 @@ class SystemMonitorApp(tk.Tk):
         self.micro_shell.grid_remove()
         self.main_shell.grid()
         self.resizable(True, True)
-        self.minsize(820, 560)
+        self.minsize(900, 600)
         self.geometry(self.normal_geometry)
         self.attributes("-topmost", bool(self.topmost_var.get()))
         self.after(10, self.lift)
@@ -644,16 +854,26 @@ class SystemMonitorApp(tk.Tk):
         if self.compact:
             self.metrics_panel.grid_remove()
             self.compact_button.set_text("Full")
-            self.geometry("820x560")
+            self.geometry("900x600")
         else:
             self.metrics_panel.grid()
             self.compact_button.set_text("Compact")
-            self.geometry("1040x700")
+            self.geometry("1120x720")
 
     def clear_history(self):
         self.cpu_usage.clear()
         self.mem_usage.clear()
         self.refresh_chart()
+
+    def adjust_refresh_interval(self, delta):
+        interval = self.get_refresh_interval() + delta
+        interval = min(max(interval, 500), 5000)
+        self.interval_var.set(str(interval))
+        self.update_interval_pill()
+
+    def update_interval_pill(self):
+        if hasattr(self, "interval_pill"):
+            self.interval_pill.set_text(f"{self.get_refresh_interval()} ms")
 
     def get_refresh_interval(self):
         try:
@@ -661,7 +881,9 @@ class SystemMonitorApp(tk.Tk):
         except ValueError:
             interval = 1000
             self.interval_var.set(str(interval))
-        return min(max(interval, 500), 5000)
+        interval = min(max(interval, 500), 5000)
+        self.interval_var.set(str(interval))
+        return interval
 
     def get_root_disk_path(self):
         if os.name == "nt":
@@ -672,6 +894,43 @@ class SystemMonitorApp(tk.Tk):
         if hasattr(subprocess, "CREATE_NO_WINDOW"):
             return subprocess.CREATE_NO_WINDOW
         return 0
+
+    def check_admin(self):
+        if os.name != "nt":
+            return True
+
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except (AttributeError, OSError):
+            return False
+
+    def get_app_base_path(self):
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            return sys._MEIPASS
+        return os.path.dirname(os.path.abspath(__file__))
+
+    def get_sensor_helper_path(self):
+        app_base = self.get_app_base_path()
+        project_base = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.join(app_base, "SensorProbe.exe"),
+            os.path.join(project_base, "sensor-helper", "publish", "SensorProbe.exe"),
+            os.path.join(
+                project_base,
+                "sensor-helper",
+                "bin",
+                "Release",
+                "net8.0",
+                "win-x64",
+                "publish",
+                "SensorProbe.exe",
+            ),
+        ]
+
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+        return None
 
     def get_gpu_details(self):
         now = time.monotonic()
@@ -700,6 +959,7 @@ class SystemMonitorApp(tk.Tk):
                     "subtitle": "No GPU telemetry",
                     "percent": None,
                     "accent": self.palette["green"],
+                    "temperature": None,
                 }
         finally:
             if "details" not in locals():
@@ -709,6 +969,7 @@ class SystemMonitorApp(tk.Tk):
                     "subtitle": "No GPU telemetry",
                     "percent": None,
                     "accent": self.palette["green"],
+                    "temperature": None,
                 }
             with self.gpu_lock:
                 self.gpu_cache = details
@@ -742,15 +1003,18 @@ class SystemMonitorApp(tk.Tk):
         name, load, mem_used, mem_total, temp = parts[:5]
         try:
             load_percent = float(load)
+            temp_value = float(temp)
         except ValueError:
             return None
 
         return {
             "title": "GPU LOAD",
             "value": f"{load_percent:.0f}%",
-            "subtitle": f"{self.shorten(name, 18)} | {mem_used}/{mem_total} MB | {temp} deg C",
+            "subtitle": f"{self.shorten(name, 18)} | {mem_used}/{mem_total} MB | {temp_value:.0f} deg C",
             "percent": load_percent,
             "accent": self.palette["green"],
+            "temperature": temp_value,
+            "name": name,
         }
 
     def query_windows_gpu(self):
@@ -797,20 +1061,254 @@ class SystemMonitorApp(tk.Tk):
             "subtitle": "Windows 3D engine",
             "percent": load_percent,
             "accent": self.palette["green"],
+            "temperature": None,
         }
 
     def get_cpu_temperature(self):
+        text, _value = self.get_cpu_temperature_details()
+        return text
+
+    def get_cpu_temperature_details(self):
+        details = self.get_temperature_details()
+        return details["cpu_text"], details["cpu_value"]
+
+    def get_empty_temperature_cache(self, status):
+        return {
+            "cpu_text": "N/A",
+            "cpu_value": None,
+            "gpu_text": "N/A",
+            "gpu_value": None,
+            "primary_text": "N/A",
+            "primary_value": None,
+            "source": status,
+            "status": status,
+        }
+
+    def get_temperature_details(self, gpu=None):
+        now = time.monotonic()
+        with self.temperature_lock:
+            cache = self.temperature_cache.copy()
+            should_refresh = (
+                now - self.temperature_cache_time > self.temperature_poll_interval
+                and not self.temperature_query_running
+            )
+            if should_refresh:
+                self.temperature_query_running = True
+
+        if gpu and cache["gpu_value"] is None and gpu.get("temperature") is not None:
+            cache["gpu_value"] = gpu["temperature"]
+            cache["gpu_text"] = self.format_temperature(gpu["temperature"])
+            if cache["primary_value"] is None:
+                cache["primary_value"] = gpu["temperature"]
+                cache["primary_text"] = cache["gpu_text"]
+                cache["source"] = "NVIDIA"
+                cache["status"] = "GPU temperature from NVIDIA driver"
+
+        if should_refresh:
+            thread = threading.Thread(target=self.refresh_temperature_cache, daemon=True)
+            thread.start()
+
+        return cache
+
+    def refresh_temperature_cache(self):
+        try:
+            details = self.get_empty_temperature_cache("No supported temperature sensor")
+            helper_details = self.query_sensor_helper_temperatures()
+            psutil_cpu = self.query_psutil_cpu_temperature()
+            windows_zone = self.query_windows_thermal_zone()
+            nvidia_gpu = self.query_nvidia_temperature()
+
+            if helper_details:
+                details.update(helper_details)
+
+            if details["cpu_value"] is None and psutil_cpu:
+                details["cpu_value"] = psutil_cpu["value"]
+                details["cpu_text"] = self.format_temperature(psutil_cpu["value"])
+                details["source"] = psutil_cpu["source"]
+
+            if details["cpu_value"] is None and windows_zone:
+                details["cpu_value"] = windows_zone["value"]
+                details["cpu_text"] = self.format_temperature(windows_zone["value"])
+                details["source"] = windows_zone["source"]
+
+            if details["gpu_value"] is None and nvidia_gpu:
+                details["gpu_value"] = nvidia_gpu["value"]
+                details["gpu_text"] = self.format_temperature(nvidia_gpu["value"])
+                details["source"] = nvidia_gpu["source"]
+
+            primary_value = details["cpu_value"] if details["cpu_value"] is not None else details["gpu_value"]
+            details["primary_value"] = primary_value
+            details["primary_text"] = self.format_temperature(primary_value)
+
+            if primary_value is not None:
+                if details["source"] == "No supported temperature sensor":
+                    details["source"] = "Hardware sensor"
+                details["status"] = details["source"]
+            elif os.name == "nt" and not self.is_admin:
+                details["status"] = "Run as administrator for hardware temperatures"
+                details["source"] = "Permission required"
+            elif self.get_sensor_helper_path() is None:
+                details["status"] = "Sensor helper is missing"
+                details["source"] = "Helper missing"
+        except Exception as exc:
+            details = self.get_empty_temperature_cache(f"Temperature read failed: {exc.__class__.__name__}")
+        finally:
+            with self.temperature_lock:
+                self.temperature_cache = details
+                self.temperature_cache_time = time.monotonic()
+                self.temperature_query_running = False
+
+    def query_sensor_helper_temperatures(self):
+        helper_path = self.get_sensor_helper_path()
+        if helper_path is None:
+            return None
+
+        try:
+            result = subprocess.run(
+                [helper_path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=self.get_subprocess_creationflags(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        try:
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+        except (json.JSONDecodeError, IndexError):
+            return None
+
+        cpu = payload.get("cpu") or {}
+        gpu = payload.get("gpu") or {}
+        cpu_value = self.clean_temperature_value(cpu.get("value"))
+        gpu_value = self.clean_temperature_value(gpu.get("value"))
+
+        if cpu_value is None and gpu_value is None:
+            return None
+
+        source = payload.get("source") or "LibreHardwareMonitor"
+        return {
+            "cpu_text": self.format_temperature(cpu_value),
+            "cpu_value": cpu_value,
+            "gpu_text": self.format_temperature(gpu_value),
+            "gpu_value": gpu_value,
+            "primary_text": self.format_temperature(cpu_value or gpu_value),
+            "primary_value": cpu_value if cpu_value is not None else gpu_value,
+            "source": source,
+            "status": source,
+        }
+
+    def query_psutil_cpu_temperature(self):
         try:
             temps = psutil.sensors_temperatures()
         except (AttributeError, OSError):
-            return "N/A"
+            return None
 
         for entries in temps.values():
             for entry in entries:
                 label = (entry.label or "").lower()
                 if "cpu" in label or "core" in label or not label:
-                    return f"{entry.current:.1f} deg C"
-        return "N/A"
+                    value = self.clean_temperature_value(entry.current)
+                    if value is not None:
+                        return {"value": value, "source": "psutil"}
+        return None
+
+    def query_windows_thermal_zone(self):
+        if os.name != "nt":
+            return None
+
+        command = (
+            "$zones = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature "
+            "-ErrorAction SilentlyContinue; "
+            "$values = @($zones | ForEach-Object { [math]::Round(($_.CurrentTemperature / 10) - 273.15, 1) } "
+            "| Where-Object { $_ -gt 0 -and $_ -lt 125 }); "
+            "if ($values.Count -gt 0) { ($values | Measure-Object -Average).Average }"
+        )
+
+        try:
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    command,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=self.get_subprocess_creationflags(),
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            return None
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        value = self.clean_temperature_value(result.stdout.strip().splitlines()[-1].replace(",", "."))
+        if value is None:
+            return None
+        return {"value": value, "source": "Windows thermal zone"}
+
+    def query_nvidia_temperature(self):
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                creationflags=self.get_subprocess_creationflags(),
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            return None
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        value = self.clean_temperature_value(result.stdout.strip().splitlines()[0].replace(",", "."))
+        if value is None:
+            return None
+        return {"value": value, "source": "NVIDIA"}
+
+    def clean_temperature_value(self, value):
+        if value is None:
+            return None
+        try:
+            temperature = float(value)
+        except (TypeError, ValueError):
+            return None
+        if temperature <= 0 or temperature >= 125:
+            return None
+        return temperature
+
+    def format_temperature(self, value):
+        value = self.clean_temperature_value(value)
+        if value is None:
+            return "N/A"
+        return f"{value:.1f} deg C"
+
+    def get_temperature_accent(self, value):
+        if value is None:
+            return self.palette["muted"]
+        if value >= 85:
+            return self.palette["red"]
+        if value >= 70:
+            return self.palette["amber"]
+        return self.palette["green"]
+
+    def get_temperature_percent(self, value):
+        if value is None:
+            return None
+        return min(max((value / 100) * 100, 0), 100)
 
     def get_battery_details(self):
         try:
@@ -879,7 +1377,14 @@ class SystemMonitorApp(tk.Tk):
 
         current_freq = (freq.current / 1000) if freq and freq.current else 0
         max_freq = (freq.max / 1000) if freq and freq.max else 0
-        temp = self.get_cpu_temperature()
+        temp_details = self.get_temperature_details(gpu)
+        temp = temp_details["cpu_text"]
+        cpu_temp_value = temp_details["cpu_value"]
+        gpu_temp_value = temp_details["gpu_value"]
+        gpu_temp_text = temp_details["gpu_text"]
+        primary_temp_value = cpu_temp_value if cpu_temp_value is not None else gpu_temp_value
+        primary_temp_text = temp_details["primary_text"]
+        temp_accent = self.get_temperature_accent(primary_temp_value)
         physical_cores = psutil.cpu_count(logical=False) or "N/A"
         logical_cores = psutil.cpu_count(logical=True) or "N/A"
         battery_value, battery_subtitle, battery_percent = self.get_battery_details()
@@ -890,10 +1395,17 @@ class SystemMonitorApp(tk.Tk):
 
         self.latest_metrics = {
             "gpu": gpu,
+            "temperature": {
+                "title": "TEMPERATURE",
+                "value": primary_temp_text,
+                "subtitle": f"{temp_details['status']} | CPU {temp} | GPU {gpu_temp_text}",
+                "percent": self.get_temperature_percent(primary_temp_value),
+                "accent": temp_accent,
+            },
             "cpu": {
                 "title": "CPU LOAD",
                 "value": f"{cpu:.1f}%",
-                "subtitle": f"{physical_cores}/{logical_cores} cores | {current_freq:.2f} GHz",
+                "subtitle": f"{physical_cores}/{logical_cores} cores | {current_freq:.2f} GHz | {temp}",
                 "percent": cpu,
                 "accent": self.palette["blue"],
             },
@@ -934,6 +1446,18 @@ class SystemMonitorApp(tk.Tk):
             },
         }
 
+        self.cards["gpu"].update(
+            gpu["value"],
+            gpu["subtitle"],
+            gpu["percent"],
+            gpu["accent"],
+        )
+        self.cards["temperature"].update(
+            primary_temp_text,
+            f"{temp_details['status']} | CPU {temp} | GPU {gpu_temp_text}",
+            self.get_temperature_percent(primary_temp_value),
+            temp_accent,
+        )
         self.cards["cpu"].update(
             f"{cpu:.1f}%",
             f"{physical_cores} physical / {logical_cores} logical | {current_freq:.2f} GHz of {max_freq:.2f} GHz | {temp}",
@@ -961,6 +1485,8 @@ class SystemMonitorApp(tk.Tk):
             f"Uptime | {current_time}",
             None,
         )
+        if hasattr(self, "temp_badge"):
+            self.temp_badge.config(text=f"Temp: {primary_temp_text}", fg=temp_accent)
 
         self.refresh_chart()
         if self.micro_mode:
